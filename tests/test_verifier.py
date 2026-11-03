@@ -1,0 +1,268 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+from slimconfig import build_output, plain_output
+
+import verifier
+from contract import (
+    LegalMovesInput,
+    LegalMovesOutput,
+    PlayMovesInput,
+    PlayMovesOutput,
+    PuzzleInput,
+    PuzzleOutput,
+    SolutionOutput,
+    SolveMateInput,
+    SolveMateOutput,
+)
+from plugin import get_puzzle, legal_moves, play_moves, solve_puzzle
+from plugin.chess_rules import legal_moves as moves_of
+from plugin.chess_rules import mating_keys, parse_fen, play, uci
+from plugin.puzzles import puzzles
+
+HERE = Path(".")
+TWO_ROOKS = "6k1/5ppp/8/8/8/8/8/RR4K1 w - - 0 1"  # mate in 1, by a1a8 or b1b8
+PROMOTION = "k7/2P5/1K6/8/8/8/8/8 w - - 0 1"  # mate in 1, by c7c8q or c7c8r
+
+
+# The verifier gets contract instances, as NanoAgent's sandbox builds them from JSON.
+def built(value, cls):
+    return build_output(plain_output(value), cls)
+
+
+def reference(puzzle_id: str) -> SolutionOutput:
+    return built(solve_puzzle(SolveMateInput(puzzle_id=puzzle_id), HERE), SolutionOutput)
+
+
+def made_up(puzzle_id: str, fen: str, keys: list[str]) -> SolutionOutput:
+    return built(SolutionOutput(puzzle_id=puzzle_id, fen=fen, mate_in=int(puzzle_id[1]), keys=keys), SolutionOutput)
+
+
+def judge(puzzle_id: str, key: str, line: list[str], ref: SolutionOutput | None, answer_id: str | None = None):
+    arguments = build_output({"puzzle_id": puzzle_id}, SolveMateInput)
+    output = build_output({"puzzle_id": answer_id or puzzle_id, "key_move": key, "main_line": line}, SolveMateOutput)
+    first = verifier.verify_task("solve-mate", arguments, output, ref, str(HERE))
+    # The sandbox runs the verifier twice; both verdicts must match.
+    assert verifier.verify_task("solve-mate", arguments, output, ref, str(HERE)) == first
+    return first
+
+
+def stored(puzzle_id: str) -> dict:
+    return puzzles()[puzzle_id]
+
+
+# Correct answers.
+
+
+@pytest.mark.parametrize("puzzle_id", ["m1-0001", "m2-0001", "m3-0001", "m1-0100", "m2-0100", "m3-0100"])
+def test_accepts_the_stored_solution(puzzle_id: str) -> None:
+    puzzle = stored(puzzle_id)
+    verdict = judge(puzzle_id, puzzle["keys"][0], puzzle["main_line"], reference(puzzle_id))
+    assert verdict["valid"] is True and verdict["score"] == 1.0
+
+
+def test_accepts_any_key_that_forces_mate() -> None:
+    ref = made_up("m1-9001", TWO_ROOKS, ["a1a8", "b1b8"])
+    assert judge("m1-9001", "b1b8", ["b1b8"], ref)["valid"] is True
+    assert judge("m1-9001", "a1a8", ["a1a8"], ref)["valid"] is True
+
+
+def test_accepts_a_line_with_another_black_defence() -> None:
+    puzzle = stored("m2-0001")
+    position = parse_fen(puzzle["fen"])
+    after_key = play(position, [puzzle["keys"][0]])
+    for reply in (uci(move) for move in moves_of(after_key)):
+        mates = mating_keys(play(after_key, [reply]), 1)
+        if reply != puzzle["main_line"][1] and mates:
+            line = [puzzle["keys"][0], reply, mates[0]]
+            assert judge("m2-0001", puzzle["keys"][0], line, reference("m2-0001"))["valid"] is True
+            return
+    pytest.skip("m2-0001 has only one black defence")
+
+
+def test_accepts_a_line_that_mates_sooner_than_n() -> None:
+    # Boundary: a weak black defence lets White mate before move n, and the line may show that.
+    for puzzle_id in sorted(p for p in puzzles() if p.startswith("m3-")):
+        puzzle = stored(puzzle_id)
+        after_key = play(parse_fen(puzzle["fen"]), [puzzle["keys"][0]])
+        for reply in (uci(move) for move in moves_of(after_key)):
+            mates = mating_keys(play(after_key, [reply]), 1)
+            if mates:
+                line = [puzzle["keys"][0], reply, mates[0]]
+                verdict = judge(puzzle_id, puzzle["keys"][0], line, reference(puzzle_id))
+                assert verdict["valid"] is True and verdict["score"] == 1.0
+                return
+    pytest.fail("no mate-in-3 puzzle has a black defence that allows mate in 2")
+
+
+def test_accepts_a_promotion_key() -> None:
+    ref = made_up("m1-9002", PROMOTION, ["c7c8q", "c7c8r"])
+    assert judge("m1-9002", "c7c8r", ["c7c8r"], ref)["valid"] is True
+
+
+# Wrong answers.
+
+
+def test_rejects_a_legal_key_that_does_not_force_mate() -> None:
+    puzzle = stored("m2-0001")
+    position = parse_fen(puzzle["fen"])
+    wrong = next(uci(move) for move in moves_of(position) if uci(move) not in puzzle["keys"])
+    verdict = judge("m2-0001", wrong, [wrong], reference("m2-0001"))
+    assert verdict["valid"] is False and verdict["score"] == 0.0 and "does not force mate" in verdict["message"]
+
+
+def test_rejects_a_key_that_mates_only_after_a_bad_defence() -> None:
+    # Every first move of a mate in 2 is refuted somehow, even one after which some defence loses at once.
+    for puzzle_id in sorted(p for p in puzzles() if p.startswith("m2-")):
+        puzzle = stored(puzzle_id)
+        position = parse_fen(puzzle["fen"])
+        for move in (uci(m) for m in moves_of(position)):
+            if move in puzzle["keys"]:
+                continue
+            after = play(position, [move])
+            for reply in (uci(m) for m in moves_of(after)):
+                mates = mating_keys(play(after, [reply]), 1)
+                if mates:
+                    verdict = judge(puzzle_id, move, [move, reply, mates[0]], reference(puzzle_id))
+                    assert verdict["valid"] is False and verdict["score"] == 0.0
+                    return
+    pytest.fail("no tempting wrong key found")
+
+
+def test_gives_half_credit_for_the_key_with_a_line_that_does_not_mate() -> None:
+    puzzle = stored("m2-0001")
+    key, reply = puzzle["main_line"][0], puzzle["main_line"][1]
+    after = play(parse_fen(puzzle["fen"]), [key, reply])
+    quiet = next(uci(move) for move in moves_of(after) if uci(move) not in mating_keys(after, 1))
+    verdict = judge("m2-0001", key, [key, reply, quiet], reference("m2-0001"))
+    assert verdict["valid"] is False and verdict["score"] == 0.5 and "checkmated" in verdict["message"]
+
+
+@pytest.mark.parametrize(
+    ("line", "message"),
+    [
+        ([], "missing"),
+        (["b1b8"], "not the key"),
+        (["a1a8", "g8h8", "a8a7"], "more than"),
+        (["a1a8", "Kh8"], "more than"),
+        (["a1a7"], "not the key"),
+    ],
+)
+def test_gives_half_credit_for_a_broken_line(line: list[str], message: str) -> None:
+    ref = made_up("m1-9001", TWO_ROOKS, ["a1a8", "b1b8"])
+    verdict = judge("m1-9001", "a1a8", line, ref)
+    assert verdict["valid"] is False and verdict["score"] == 0.5 and message in verdict["message"]
+
+
+def test_gives_half_credit_for_an_illegal_or_malformed_line_move() -> None:
+    puzzle = stored("m2-0001")
+    key = puzzle["keys"][0]
+    for bad, message in (("a1a1", "not legal"), ("Kh8", "not a UCI move")):
+        verdict = judge("m2-0001", key, [key, bad, puzzle["main_line"][2]], reference("m2-0001"))
+        assert verdict["score"] == 0.5 and message in verdict["message"]
+
+
+# Missing and malformed answers.
+
+
+@pytest.mark.parametrize("key", ["", "Ra8#", "Ra8", "a1-a8", "A1A8", " a1a8", "a1a8 ", "e9e10", "a1a8x", "0-0"])
+def test_rejects_a_malformed_key(key: str) -> None:
+    ref = made_up("m1-9001", TWO_ROOKS, ["a1a8", "b1b8"])
+    verdict = judge("m1-9001", key, ["a1a8"], ref)
+    assert verdict["valid"] is False and verdict["score"] == 0.0 and "malformed" in verdict["message"]
+
+
+def test_rejects_an_illegal_key_and_a_promotion_without_its_letter() -> None:
+    ref = made_up("m1-9002", PROMOTION, ["c7c8q", "c7c8r"])
+    for key in ("c7c8", "c7c6", "b6a7"):
+        verdict = judge("m1-9002", key, [key], ref)
+        assert verdict["valid"] is False and verdict["score"] == 0.0 and "not legal" in verdict["message"]
+
+
+def test_rejects_an_answer_for_another_puzzle() -> None:
+    puzzle = stored("m1-0001")
+    verdict = judge("m1-0001", puzzle["keys"][0], puzzle["main_line"], reference("m1-0001"), answer_id="m1-0002")
+    assert verdict["valid"] is False and verdict["score"] == 0.0
+
+
+# A broken reference never yields a pass.
+
+
+def test_rejects_without_a_sound_reference() -> None:
+    puzzle = stored("m1-0001")
+    key, line = puzzle["keys"][0], puzzle["main_line"]
+    assert judge("m1-0001", key, line, None)["valid"] is False
+    assert judge("m1-0001", key, line, reference("m1-0002"))["valid"] is False
+    bad_fen = built(replace(reference("m1-0001"), fen="8/8/8/8/8/8/8/8 w - - 0 1"), SolutionOutput)
+    assert "reference is broken" in judge("m1-0001", key, line, bad_fen)["message"]
+
+
+def test_reports_an_integrity_failure_when_proof_and_reference_disagree() -> None:
+    # The right key missing from the reference, or a wrong key listed in it.
+    missing = made_up("m1-9001", TWO_ROOKS, ["b1b8"])
+    verdict = judge("m1-9001", "a1a8", ["a1a8"], missing)
+    assert verdict["valid"] is False and verdict["score"] == 0.0 and "integrity" in verdict["message"]
+    planted = made_up("m1-9001", TWO_ROOKS, ["a1a7", "a1a8", "b1b8"])
+    verdict = judge("m1-9001", "a1a7", ["a1a7"], planted)
+    assert verdict["valid"] is False and verdict["score"] == 0.0 and "integrity" in verdict["message"]
+
+
+# The tool checks.
+
+
+def test_tool_inputs() -> None:
+    assert verifier.verify_input("get_puzzle", build_output({"puzzle_id": "m2-0042"}, PuzzleInput))["valid"]
+    for bad in ("m4-0001", "m2-42", "M2-0042", ""):
+        assert not verifier.verify_input("get_puzzle", build_output({"puzzle_id": bad}, PuzzleInput))["valid"]
+        assert not verifier.verify_input("solve_puzzle", build_output({"puzzle_id": bad}, SolveMateInput))["valid"]
+    assert not verifier.verify_input("legal_moves", build_output({"fen": "nonsense"}, LegalMovesInput))["valid"]
+    for moves in ([], ["a1a8"] * 13, ["Ra8"]):
+        given = build_output({"fen": TWO_ROOKS, "moves": moves}, PlayMovesInput)
+        assert not verifier.verify_input("play_moves", given)["valid"]
+    assert verifier.verify_input("play_moves", build_output({"fen": TWO_ROOKS, "moves": ["a1a8"]}, PlayMovesInput))[
+        "valid"
+    ]
+
+
+def test_get_puzzle_output() -> None:
+    given = build_output({"puzzle_id": "m3-0007"}, PuzzleInput)
+    made = built(get_puzzle(given, HERE), PuzzleOutput)
+    assert verifier.verify_output("get_puzzle", given, made, ".")["valid"]
+    for change in ({"mate_in": 2}, {"puzzle_id": "m3-0008"}, {"board": "."}, {"fen": made.fen.replace(" w ", " b ")}):
+        tampered = built(replace(made, **change), PuzzleOutput)
+        assert not verifier.verify_output("get_puzzle", given, tampered, ".")["valid"], change
+
+
+def test_solve_puzzle_output() -> None:
+    given = build_output({"puzzle_id": "m2-0003"}, SolveMateInput)
+    made = built(solve_puzzle(given, HERE), SolutionOutput)
+    assert verifier.verify_output("solve_puzzle", given, made, ".")["valid"]
+    position = parse_fen(made.fen)
+    wrong = next(uci(move) for move in moves_of(position) if uci(move) not in made.keys)
+    for keys in ([], sorted(made.keys + [wrong]), made.keys + made.keys):
+        tampered = built(replace(made, keys=keys), SolutionOutput)
+        assert not verifier.verify_output("solve_puzzle", given, tampered, ".")["valid"], keys
+    assert not verifier.verify_output("solve_puzzle", given, built(replace(made, mate_in=3), SolutionOutput), ".")[
+        "valid"
+    ]
+
+
+def test_legal_moves_output() -> None:
+    given = build_output({"fen": stored("m2-0001")["fen"]}, LegalMovesInput)
+    made = built(legal_moves(given, HERE), LegalMovesOutput)
+    assert verifier.verify_output("legal_moves", given, made, ".")["valid"]
+    for change in ({"moves": made.moves[1:]}, {"in_check": not made.in_check}, {"san": list(reversed(made.san))}):
+        tampered = built(replace(made, **change), LegalMovesOutput)
+        assert not verifier.verify_output("legal_moves", given, tampered, ".")["valid"]
+
+
+def test_play_moves_output() -> None:
+    given = build_output({"fen": TWO_ROOKS, "moves": ["a1a8"]}, PlayMovesInput)
+    made = built(play_moves(given, HERE), PlayMovesOutput)
+    assert made.checkmate and verifier.verify_output("play_moves", given, made, ".")["valid"]
+    for change in ({"checkmate": False}, {"legal_replies": 1}, {"fen": TWO_ROOKS}):
+        tampered = built(replace(made, **change), PlayMovesOutput)
+        assert not verifier.verify_output("play_moves", given, tampered, ".")["valid"]

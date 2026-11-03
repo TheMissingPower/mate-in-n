@@ -1,0 +1,11 @@
+_ > nanoagent.plugin.v0001.ProductConfig:
+tagline: "Chess mate-in-n puzzles, checked by a proof, not by trust"
+summary: "Mate in N gives an agent a composed chess problem in which White forces checkmate within 1, 2 or 3 moves. The agent explores with exact legal-move tools and submits a key move and a main line; a deterministic verifier proves the key against every Black defence."
+highlights:
+  - "300 composed problems from yacpdb.org, solved and checked ahead of time and bundled, so runs need no network"
+  - "The verifier proves the key by exhaustive search over every Black defence, and checks the main line move by move"
+  - "Its own pure-Python chess rules, tested against standard perft move counts"
+steps:
+  - "Ask the chat for a puzzle by id, such as m2-0042"
+  - "The agent reads the position, tests candidate keys with the move tools, and submits its key and main line"
+  - "The verdict says whether the key forces mate within n and whether the line ends in checkmate"
