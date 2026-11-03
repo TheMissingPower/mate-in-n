@@ -88,7 +88,11 @@ class SolveMateInput(Output):
 @dataclass
 class SolveMateOutput(Output):
     puzzle_id: Annotated[str, "The puzzle's id, exactly as the task gives it"]
-    key_move: Annotated[str, "White's first move, which must force mate within n whatever Black plays; " + UCI]
+    key_move: Annotated[
+        str,
+        "White's first move, which must force mate within n whatever Black plays; a move in UCI notation: "
+        'from square, to square, and a promotion letter q, r, b or n if any, e.g. "e2e4", "e7e8q"',
+    ]
     main_line: Annotated[
         list[Annotated[str, UCI]],
         "One line of play from the starting position, in UCI: the key move, then alternately a Black defence and "
