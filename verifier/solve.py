@@ -1,6 +1,6 @@
 """The solve-mate task: does the submitted key force mate within n, and does the main line end in checkmate?"""
 
-from .checks import puzzle_position_problem, result
+from .checks import puzzle_position_problem, result, same_start_problem
 from .chess_rules import UCI_PATTERN, forces_mate, is_checkmate, make_move, parse_fen, parse_uci
 
 # The share of the score for a key that forces mate when the main line does not show a mate.
@@ -15,6 +15,9 @@ def verify_task(arguments, output, reference, workspace):
     problem = puzzle_position_problem(reference.fen, reference.mate_in, reference.puzzle_id)
     if problem:
         return result(False, f"the reference is broken: {problem}", score=0.0)
+    problem = same_start_problem(arguments, reference.fen, reference.mate_in)
+    if problem:
+        return result(False, f"the task input is broken: {problem}", score=0.0)
     if output.puzzle_id != arguments.puzzle_id:
         return result(False, f"the answer is for {output.puzzle_id!r}, not {arguments.puzzle_id}", score=0.0)
     position, n, key = parse_fen(reference.fen), reference.mate_in, output.key_move

@@ -9,10 +9,10 @@ TOOLS = {
     Tool.GET_PUZZLE: (puzzle.verify_input, puzzle.verify_puzzle),
     Tool.LEGAL_MOVES: (board.verify_legal_moves_input, board.verify_legal_moves_output),
     Tool.PLAY_MOVES: (board.verify_play_moves_input, board.verify_play_moves_output),
-    Tool.SOLVE_PUZZLE: (puzzle.verify_input, puzzle.verify_solution),
+    Tool.SOLVE_PUZZLE: (puzzle.verify_solve_input, puzzle.verify_solution),
 }
 # task -> its output's check, verify_task(arguments, output, reference, workspace)
-TASKS = {Task.SOLVE_MATE: solve.verify_task}
+TASKS = {Task.GET_PUZZLE: puzzle.verify_lookup, Task.SOLVE_MATE: solve.verify_task}
 
 
 def verify_input(tool, value):

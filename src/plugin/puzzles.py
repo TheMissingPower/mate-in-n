@@ -1,4 +1,4 @@
-"""The bundled puzzles: get_puzzle shows one to the agent, solve_puzzle gives its keys to the verifier only."""
+"""The bundled puzzles: get_puzzle looks one up by id, solve_puzzle gives its keys to the verifier only."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from functools import cache
 from pathlib import Path
 
 from contract import PuzzleInput, PuzzleOutput, SolutionOutput, SolveMateInput
-from plugin.chess_rules import board_text, parse_fen
+from plugin.chess_rules import board_text, parse_fen, to_fen
 
 DATA = Path(__file__).resolve().parent / "data" / "puzzles.json"
-PUZZLE_ID = re.compile(r"^m[1-3]-\d{4}$")
+PUZZLE_ID = re.compile(r"^m[12]-\d{4}$")
 
 
 @cache
@@ -40,4 +40,6 @@ def get_puzzle(given: PuzzleInput, workspace: Path) -> PuzzleOutput:
 
 def solve_puzzle(given: SolveMateInput, workspace: Path) -> SolutionOutput:
     puzzle = find(given.puzzle_id)
+    if to_fen(parse_fen(given.fen)) != puzzle["fen"] or given.mate_in != puzzle["mate_in"]:
+        raise ValueError(f"the fen and mate_in are not those of {puzzle['id']}: copy them from get-puzzle")
     return SolutionOutput(puzzle_id=puzzle["id"], fen=puzzle["fen"], mate_in=puzzle["mate_in"], keys=puzzle["keys"])

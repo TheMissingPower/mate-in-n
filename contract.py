@@ -15,10 +15,11 @@ class Tool(Enum):
 
 
 class Task(Enum):
+    GET_PUZZLE = "get-puzzle"
     SOLVE_MATE = "solve-mate"
 
 
-PUZZLE_ID = 'A puzzle id "m<n>-<NNNN>", where n (1, 2 or 3) is the mate length, e.g. "m2-0042"'
+PUZZLE_ID = 'A puzzle id "m<n>-<NNNN>", where n (1 or 2) is the mate length, e.g. "m2-0042"'
 FEN = (
     "A chess position in FEN, e.g. \"6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1\"; "
     "the first four fields alone are accepted, with the move counters taken as 0 1"
@@ -46,30 +47,34 @@ class LegalMovesInput(Output):
 
 @dataclass
 class LegalMovesOutput(Output):
-    fen: Annotated[str, "The position, as a full six-field FEN"]
-    white_to_move: Annotated[bool, "Whether White is the side to move"]
     moves: Annotated[list[Annotated[str, UCI]], "Every legal move of the side to move, sorted"]
-    san: Annotated[list[str], "The same moves in Standard Algebraic Notation, in the same order"]
-    in_check: Annotated[bool, "Whether the side to move is in check"]
-    checkmate: Annotated[bool, "Whether the side to move is checkmated"]
-    stalemate: Annotated[bool, "Whether the side to move is stalemated"]
 
 
 @dataclass
 class PlayMovesInput(Output):
     fen: Annotated[str, FEN]
-    moves: Annotated[list[Annotated[str, UCI]], "1 to 12 moves to play in turn from the position, each legal when played"]
+    lines: Annotated[
+        list[list[Annotated[str, UCI]]],
+        "1 to 30 lines to try, each played separately from the position: 1 to 3 moves in turn",
+    ]
+
+
+@dataclass
+class PlayedLine(Output):
+    moves: Annotated[list[Annotated[str, UCI]], "The line's moves, as given"]
+    error: Annotated[str, "Why a move could not be played, with its number; empty when every move was legal"]
+    san: Annotated[list[str], "The moves played, in Standard Algebraic Notation, up to any illegal move"]
+    fen: Annotated[str, "The position after the moves played, as a full six-field FEN"]
+    white_to_move: Annotated[bool, "Whether White is the side to move then"]
+    in_check: Annotated[bool, "Whether the side to move then is in check"]
+    checkmate: Annotated[bool, "Whether the side to move then is checkmated"]
+    stalemate: Annotated[bool, "Whether the side to move then is stalemated"]
+    legal_replies: Annotated[int, "How many legal moves the side to move then has"]
 
 
 @dataclass
 class PlayMovesOutput(Output):
-    fen: Annotated[str, "The position after the moves, as a full six-field FEN"]
-    san: Annotated[list[str], "The moves played, in Standard Algebraic Notation"]
-    white_to_move: Annotated[bool, "Whether White is the side to move now"]
-    in_check: Annotated[bool, "Whether the side to move now is in check"]
-    checkmate: Annotated[bool, "Whether the side to move now is checkmated"]
-    stalemate: Annotated[bool, "Whether the side to move now is stalemated"]
-    legal_replies: Annotated[int, "How many legal moves the side to move now has"]
+    lines: Annotated[list[PlayedLine], "One result per line, in the order given"]
 
 
 @dataclass
@@ -83,6 +88,8 @@ class SolutionOutput(Output):
 @dataclass
 class SolveMateInput(Output):
     puzzle_id: Annotated[str, PUZZLE_ID]
+    fen: Annotated[str, "The puzzle's starting position, exactly as get-puzzle gives it: White to move"]
+    mate_in: Annotated[int, "n, 1 or 2, exactly as get-puzzle gives it: White mates within n moves"]
 
 
 @dataclass
@@ -107,4 +114,8 @@ TOOLS = {
     # The reference takes the task's own input, as NanoAgent requires.
     Tool.SOLVE_PUZZLE: (SolveMateInput, SolutionOutput),
 }
-TASKS = {Task.SOLVE_MATE: (SolveMateInput, SolveMateOutput)}
+TASKS = {
+    # A tool runner takes its one tool's input and output.
+    Task.GET_PUZZLE: (PuzzleInput, PuzzleOutput),
+    Task.SOLVE_MATE: (SolveMateInput, SolveMateOutput),
+}

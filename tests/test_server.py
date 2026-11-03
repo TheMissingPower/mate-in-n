@@ -30,9 +30,12 @@ async def test_the_mcp_server_serves_the_tools(tmp_path: Path) -> None:
         puzzle = await session.call_tool("get_puzzle", {"puzzle_id": "m1-0001"})
         assert not puzzle.isError and puzzle.structuredContent["mate_in"] == 1
         key = puzzles()["m1-0001"]["keys"][0]
-        played = await session.call_tool("play_moves", {"fen": puzzle.structuredContent["fen"], "moves": [key]})
-        assert not played.isError and played.structuredContent["checkmate"] is True
-        refused = await session.call_tool("play_moves", {"fen": puzzle.structuredContent["fen"], "moves": ["a1a1"]})
+        fen = puzzle.structuredContent["fen"]
+        played = await session.call_tool("play_moves", {"fen": fen, "lines": [[key], ["a1a1"]]})
+        assert not played.isError
+        mate, illegal = played.structuredContent["lines"]
+        assert mate["checkmate"] is True and illegal["error"].startswith("move 1:")
+        refused = await session.call_tool("play_moves", {"fen": fen, "lines": []})
         assert refused.isError
 
 

@@ -1,6 +1,6 @@
-"""get_puzzle shows a puzzle; solve_puzzle, the task's reference, gives its keys. Both are rechecked here."""
+"""get_puzzle (and the get-puzzle task) looks up a puzzle; solve_puzzle, solve-mate's reference, gives its keys."""
 
-from .checks import puzzle_id_problem, puzzle_position_problem, result
+from .checks import puzzle_id_problem, puzzle_position_problem, result, same_start_problem, task_input_problem
 from .chess_rules import board_text, forces_mate, has_legal_move, parse_fen, parse_uci, shortest_mate
 
 
@@ -9,6 +9,17 @@ def verify_input(value):
     if problem:
         return result(False, problem)
     return result(True, "input is valid")
+
+
+def verify_solve_input(value):
+    problem = task_input_problem(value)
+    if problem:
+        return result(False, problem)
+    return result(True, "input is valid")
+
+
+def verify_lookup(arguments, output, reference, workspace):
+    return verify_puzzle(arguments, output, workspace)
 
 
 def verify_puzzle(input_value, output_value, workspace):
@@ -29,6 +40,9 @@ def verify_solution(input_value, output_value, workspace):
     if output_value.puzzle_id != input_value.puzzle_id:
         return result(False, "the solution is not for the puzzle asked for")
     problem = puzzle_position_problem(output_value.fen, output_value.mate_in, output_value.puzzle_id)
+    if problem:
+        return result(False, problem)
+    problem = same_start_problem(input_value, output_value.fen, output_value.mate_in)
     if problem:
         return result(False, problem)
     keys, n = output_value.keys, output_value.mate_in

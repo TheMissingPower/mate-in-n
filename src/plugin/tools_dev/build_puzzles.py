@@ -9,10 +9,9 @@ The collection gives only each problem's piece placement, with no side to move a
 - drops fairy-piece and impossible positions;
 - sets White to move with no castling and no en passant, the usual direct-mate convention;
 - shuffles with a fixed seed;
-- finds each position's shortest forced mate with the plugin's own engine, keeping exact mates in 1, 2 and 3.
+- finds each position's shortest forced mate with the plugin's own engine, keeping exact mates in 1 and 2.
 
-A mate in 3 is kept only if proving all its keys takes at most PROOF_LIMIT seconds, so the verifier stays quick.
-Candidates whose search takes longer than SEARCH_LIMIT seconds are skipped. Both limits depend on the machine,
+Candidates whose search takes longer than SEARCH_LIMIT seconds are skipped. The limit depends on the machine,
 so a rebuild elsewhere can choose different puzzles; tests/test_data.py checks the committed file itself.
 """
 
@@ -33,8 +32,8 @@ SOURCE_URL = f"https://raw.githubusercontent.com/rebeccaloran/432k-chess-puzzles
 SOURCE_SHA256 = "b1b20af96146a4eb1a87e6f353a12ff4e3181edac8d89198b129a78812e297b6"
 SEED = 480
 PER_LENGTH = 100
+LENGTHS = (1, 2)
 SEARCH_LIMIT = 10.0
-PROOF_LIMIT = 2.0
 OUTPUT = Path(__file__).resolve().parent.parent / "data" / "puzzles.json"
 
 
@@ -64,17 +63,15 @@ def candidates(lines):
 
 
 def solve(fen):
-    """The position's shortest forced mate, its keys, a main line and how long proving the keys takes."""
+    """The position's shortest forced mate within max(LENGTHS) moves, its keys and a main line."""
     position = parse_fen(fen)
-    n = shortest_mate(position, 3)
+    n = shortest_mate(position, max(LENGTHS))
     if n is None:
         return None
     keys = mating_keys(position, n)
-    started = time.perf_counter()
     for key in keys:
         assert forces_mate(position, parse_uci(position, key), n)
-    proof = time.perf_counter() - started
-    return {"mate_in": n, "keys": keys, "main_line": main_line(position, keys[0], n), "proof_seconds": proof}
+    return {"mate_in": n, "keys": keys, "main_line": main_line(position, keys[0], n)}
 
 
 def _work(tasks, results):
@@ -100,10 +97,10 @@ def solve_all(found, workers):
 
     def enough():
         # Enough once the solved prefix of the order holds PER_LENGTH of each length.
-        counts, index = {1: 0, 2: 0, 3: 0}, 0
+        counts, index = dict.fromkeys(LENGTHS, 0), 0
         while index in solved:
             outcome = solved[index]
-            if outcome and (outcome["mate_in"] < 3 or outcome["proof_seconds"] <= PROOF_LIMIT):
+            if outcome:
                 counts[outcome["mate_in"]] += 1
             index += 1
         return all(count >= PER_LENGTH for count in counts.values())
@@ -145,12 +142,12 @@ def main():
     found = candidates(read_source(args.source))
     print(f"{len(found)} orthodox candidates", flush=True)
     solved = solve_all(found, args.workers)
-    puzzles, counts, index = [], {1: 0, 2: 0, 3: 0}, 0
+    puzzles, counts, index = [], dict.fromkeys(LENGTHS, 0), 0
     while index in solved:
         outcome = solved[index]
         if outcome:
             n = outcome["mate_in"]
-            if counts[n] < PER_LENGTH and (n < 3 or outcome["proof_seconds"] <= PROOF_LIMIT):
+            if counts[n] < PER_LENGTH:
                 counts[n] += 1
                 number, fen = found[index]
                 puzzles.append(

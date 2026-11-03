@@ -33,16 +33,30 @@ def built(value, cls):
     return build_output(plain_output(value), cls)
 
 
+def task_input(puzzle_id: str) -> SolveMateInput:
+    puzzle = stored(puzzle_id)
+    return SolveMateInput(puzzle_id=puzzle_id, fen=puzzle["fen"], mate_in=puzzle["mate_in"])
+
+
 def reference(puzzle_id: str) -> SolutionOutput:
-    return built(solve_puzzle(SolveMateInput(puzzle_id=puzzle_id), HERE), SolutionOutput)
+    return built(solve_puzzle(task_input(puzzle_id), HERE), SolutionOutput)
 
 
 def made_up(puzzle_id: str, fen: str, keys: list[str]) -> SolutionOutput:
     return built(SolutionOutput(puzzle_id=puzzle_id, fen=fen, mate_in=int(puzzle_id[1]), keys=keys), SolutionOutput)
 
 
-def judge(puzzle_id: str, key: str, line: list[str], ref: SolutionOutput | None, answer_id: str | None = None):
-    arguments = build_output({"puzzle_id": puzzle_id}, SolveMateInput)
+def judge(
+    puzzle_id: str,
+    key: str,
+    line: list[str],
+    ref: SolutionOutput | None,
+    answer_id: str | None = None,
+    fen: str | None = None,
+):
+    # The task input carries the puzzle's start: a bundled puzzle's own, or the made-up reference's.
+    start = fen or (stored(puzzle_id)["fen"] if puzzle_id in puzzles() else ref.fen)
+    arguments = build_output({"puzzle_id": puzzle_id, "fen": start, "mate_in": int(puzzle_id[1])}, SolveMateInput)
     output = build_output({"puzzle_id": answer_id or puzzle_id, "key_move": key, "main_line": line}, SolveMateOutput)
     first = verifier.verify_task("solve-mate", arguments, output, ref, str(HERE))
     # The sandbox runs the verifier twice; both verdicts must match.
@@ -57,7 +71,7 @@ def stored(puzzle_id: str) -> dict:
 # Correct answers.
 
 
-@pytest.mark.parametrize("puzzle_id", ["m1-0001", "m2-0001", "m3-0001", "m1-0100", "m2-0100", "m3-0100"])
+@pytest.mark.parametrize("puzzle_id", ["m1-0001", "m2-0001", "m1-0100", "m2-0100"])
 def test_accepts_the_stored_solution(puzzle_id: str) -> None:
     puzzle = stored(puzzle_id)
     verdict = judge(puzzle_id, puzzle["keys"][0], puzzle["main_line"], reference(puzzle_id))
@@ -81,21 +95,6 @@ def test_accepts_a_line_with_another_black_defence() -> None:
             assert judge("m2-0001", puzzle["keys"][0], line, reference("m2-0001"))["valid"] is True
             return
     pytest.skip("m2-0001 has only one black defence")
-
-
-def test_accepts_a_line_that_mates_sooner_than_n() -> None:
-    # Boundary: a weak black defence lets White mate before move n, and the line may show that.
-    for puzzle_id in sorted(p for p in puzzles() if p.startswith("m3-")):
-        puzzle = stored(puzzle_id)
-        after_key = play(parse_fen(puzzle["fen"]), [puzzle["keys"][0]])
-        for reply in (uci(move) for move in moves_of(after_key)):
-            mates = mating_keys(play(after_key, [reply]), 1)
-            if mates:
-                line = [puzzle["keys"][0], reply, mates[0]]
-                verdict = judge(puzzle_id, puzzle["keys"][0], line, reference(puzzle_id))
-                assert verdict["valid"] is True and verdict["score"] == 1.0
-                return
-    pytest.fail("no mate-in-3 puzzle has a black defence that allows mate in 2")
 
 
 def test_accepts_a_promotion_key() -> None:
@@ -191,6 +190,13 @@ def test_rejects_an_answer_for_another_puzzle() -> None:
 # A broken reference never yields a pass.
 
 
+def test_rejects_a_task_input_whose_start_is_not_the_puzzles() -> None:
+    puzzle = stored("m2-0001")
+    key, line = puzzle["keys"][0], puzzle["main_line"]
+    verdict = judge("m2-0001", key, line, reference("m2-0001"), fen=stored("m2-0002")["fen"])
+    assert verdict["valid"] is False and verdict["score"] == 0.0 and "task input is broken" in verdict["message"]
+
+
 def test_rejects_without_a_sound_reference() -> None:
     puzzle = stored("m1-0001")
     key, line = puzzle["keys"][0], puzzle["main_line"]
@@ -215,29 +221,36 @@ def test_reports_an_integrity_failure_when_proof_and_reference_disagree() -> Non
 
 def test_tool_inputs() -> None:
     assert verifier.verify_input("get_puzzle", build_output({"puzzle_id": "m2-0042"}, PuzzleInput))["valid"]
-    for bad in ("m4-0001", "m2-42", "M2-0042", ""):
+    assert verifier.verify_input("solve_puzzle", built(task_input("m2-0042"), SolveMateInput))["valid"]
+    for bad in ("m3-0001", "m4-0001", "m2-42", "M2-0042", ""):
         assert not verifier.verify_input("get_puzzle", build_output({"puzzle_id": bad}, PuzzleInput))["valid"]
-        assert not verifier.verify_input("solve_puzzle", build_output({"puzzle_id": bad}, SolveMateInput))["valid"]
+        given = build_output({"puzzle_id": bad, "fen": TWO_ROOKS, "mate_in": 1}, SolveMateInput)
+        assert not verifier.verify_input("solve_puzzle", given)["valid"]
+    for change in ({"mate_in": 1}, {"fen": "nonsense"}, {"fen": TWO_ROOKS.replace(" w ", " b ")}):
+        given = built(replace(task_input("m2-0042"), **change), SolveMateInput)
+        assert not verifier.verify_input("solve_puzzle", given)["valid"], change
     assert not verifier.verify_input("legal_moves", build_output({"fen": "nonsense"}, LegalMovesInput))["valid"]
-    for moves in ([], ["a1a8"] * 13, ["Ra8"]):
-        given = build_output({"fen": TWO_ROOKS, "moves": moves}, PlayMovesInput)
-        assert not verifier.verify_input("play_moves", given)["valid"]
-    assert verifier.verify_input("play_moves", build_output({"fen": TWO_ROOKS, "moves": ["a1a8"]}, PlayMovesInput))[
-        "valid"
-    ]
+    for lines in ([], [["a1a8"]] * 31, [[]], [["a1a2"] * 4], [["Ra8"]]):
+        given = build_output({"fen": TWO_ROOKS, "lines": lines}, PlayMovesInput)
+        assert not verifier.verify_input("play_moves", given)["valid"], lines
+    given = build_output({"fen": TWO_ROOKS, "lines": [["a1a8"], ["a1a7", "g8h8", "a7a8"]]}, PlayMovesInput)
+    assert verifier.verify_input("play_moves", given)["valid"]
 
 
 def test_get_puzzle_output() -> None:
-    given = build_output({"puzzle_id": "m3-0007"}, PuzzleInput)
+    given = build_output({"puzzle_id": "m2-0007"}, PuzzleInput)
     made = built(get_puzzle(given, HERE), PuzzleOutput)
     assert verifier.verify_output("get_puzzle", given, made, ".")["valid"]
-    for change in ({"mate_in": 2}, {"puzzle_id": "m3-0008"}, {"board": "."}, {"fen": made.fen.replace(" w ", " b ")}):
+    # The get-puzzle task runs the tool and is judged the same way.
+    assert verifier.verify_task("get-puzzle", given, made, None, ".")["valid"]
+    for change in ({"mate_in": 1}, {"puzzle_id": "m2-0008"}, {"board": "."}, {"fen": made.fen.replace(" w ", " b ")}):
         tampered = built(replace(made, **change), PuzzleOutput)
         assert not verifier.verify_output("get_puzzle", given, tampered, ".")["valid"], change
+        assert not verifier.verify_task("get-puzzle", given, tampered, None, ".")["valid"], change
 
 
 def test_solve_puzzle_output() -> None:
-    given = build_output({"puzzle_id": "m2-0003"}, SolveMateInput)
+    given = built(task_input("m2-0003"), SolveMateInput)
     made = built(solve_puzzle(given, HERE), SolutionOutput)
     assert verifier.verify_output("solve_puzzle", given, made, ".")["valid"]
     position = parse_fen(made.fen)
@@ -245,24 +258,30 @@ def test_solve_puzzle_output() -> None:
     for keys in ([], sorted(made.keys + [wrong]), made.keys + made.keys):
         tampered = built(replace(made, keys=keys), SolutionOutput)
         assert not verifier.verify_output("solve_puzzle", given, tampered, ".")["valid"], keys
-    assert not verifier.verify_output("solve_puzzle", given, built(replace(made, mate_in=3), SolutionOutput), ".")[
+    assert not verifier.verify_output("solve_puzzle", given, built(replace(made, mate_in=1), SolutionOutput), ".")[
         "valid"
     ]
+    other = built(replace(given, fen=stored("m2-0004")["fen"]), SolveMateInput)
+    assert not verifier.verify_output("solve_puzzle", other, made, ".")["valid"]
 
 
 def test_legal_moves_output() -> None:
     given = build_output({"fen": stored("m2-0001")["fen"]}, LegalMovesInput)
     made = built(legal_moves(given, HERE), LegalMovesOutput)
     assert verifier.verify_output("legal_moves", given, made, ".")["valid"]
-    for change in ({"moves": made.moves[1:]}, {"in_check": not made.in_check}, {"san": list(reversed(made.san))}):
+    for change in ({"moves": made.moves[1:]}, {"moves": list(reversed(made.moves))}, {"moves": made.moves + ["a1a1"]}):
         tampered = built(replace(made, **change), LegalMovesOutput)
         assert not verifier.verify_output("legal_moves", given, tampered, ".")["valid"]
 
 
 def test_play_moves_output() -> None:
-    given = build_output({"fen": TWO_ROOKS, "moves": ["a1a8"]}, PlayMovesInput)
+    given = build_output({"fen": TWO_ROOKS, "lines": [["a1a8"], ["a1a7", "g8h8"], ["a1a7", "a7a1"]]}, PlayMovesInput)
     made = built(play_moves(given, HERE), PlayMovesOutput)
-    assert made.checkmate and verifier.verify_output("play_moves", given, made, ".")["valid"]
-    for change in ({"checkmate": False}, {"legal_replies": 1}, {"fen": TWO_ROOKS}):
-        tampered = built(replace(made, **change), PlayMovesOutput)
+    assert made.lines[0].checkmate and made.lines[2].error
+    assert verifier.verify_output("play_moves", given, made, ".")["valid"]
+    for change in ({"checkmate": False}, {"legal_replies": 1}, {"fen": TWO_ROOKS}, {"error": "move 1: no"}):
+        tampered = built(replace(made, lines=[replace(made.lines[0], **change), *made.lines[1:]]), PlayMovesOutput)
+        assert not verifier.verify_output("play_moves", given, tampered, ".")["valid"], change
+    for lines in (made.lines[:2], [*made.lines, made.lines[0]], list(reversed(made.lines))):
+        tampered = built(replace(made, lines=lines), PlayMovesOutput)
         assert not verifier.verify_output("play_moves", given, tampered, ".")["valid"]

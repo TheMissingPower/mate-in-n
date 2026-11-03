@@ -2,9 +2,9 @@
 
 import re
 
-from .chess_rules import parse_fen
+from .chess_rules import parse_fen, to_fen
 
-PUZZLE_ID = re.compile(r"^m[1-3]-\d{4}$")
+PUZZLE_ID = re.compile(r"^m[12]-\d{4}$")
 
 
 def result(valid, message, *, score=None, **details):
@@ -28,6 +28,24 @@ def position_or_problem(fen):
         return parse_fen(fen), None
     except ValueError as error:
         return None, f"not a legal position: {error}"
+
+
+def task_input_problem(value):
+    """Why solve-mate's input is not a puzzle id with a legal start and a matching n, or None."""
+    problem = puzzle_id_problem(value.puzzle_id)
+    if problem:
+        return problem
+    return puzzle_position_problem(value.fen, value.mate_in, value.puzzle_id)
+
+
+def same_start_problem(value, fen, mate_in):
+    """Why the task input's fen and mate_in are not the given puzzle's, or None."""
+    position, problem = position_or_problem(value.fen)
+    if problem:
+        return problem
+    if to_fen(position) != fen or value.mate_in != mate_in:
+        return f"the fen and mate_in are not those of {value.puzzle_id}"
+    return None
 
 
 def puzzle_position_problem(fen, mate_in, puzzle_id):
