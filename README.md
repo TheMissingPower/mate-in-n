@@ -16,7 +16,7 @@ The puzzles are 200 problems (100 each of mate in 1 and 2) from the
 |---|---|---|
 | `get_puzzle` | Gives a puzzle's starting FEN, a board diagram and n | `src/plugin/puzzles.py` |
 | `legal_moves` | Lists a position's legal moves in UCI, and nothing else: no SAN, so no `+` or `#` gives a mate away | `src/plugin/board.py` |
-| `play_moves` | Plays 1 to 30 lines of 1 to 3 UCI moves, each separately from one FEN, and returns each line's FEN, SAN and check, mate and stalemate flags; a line stops at an illegal move and names it | `src/plugin/board.py` |
+| `play_moves` | Plays 1 to 80 lines of 1 to 3 UCI moves, each separately from one FEN, and returns each line's FEN, SAN and check, mate and stalemate flags; a line stops at an illegal move and names it. A `*` before a line's last move stands for every legal move there; a `*` as its last move lists the moves there that mate. At most 120 results in all | `src/plugin/board.py` |
 | `solve_puzzle` | Gives every key that forces mate within n (the task's reference, never shown to the agent) | `src/plugin/puzzles.py` |
 
 ### Tasks
@@ -31,8 +31,12 @@ starts with the position, so it needs no lookup step. `solve_puzzle` refuses an 
 the puzzle's. **Output** `{puzzle_id, key_move, main_line}`, with moves in UCI (`e2e4`, `e7e8q`).
 
 The instructions are written for a small budget: about 2000 output tokens per model reply, thinking included, and a
-few steps. They tell the agent to think briefly, call `legal_moves` at once, and test many candidate lines in one
-`play_moves` call.
+few steps. They tell the agent to think briefly and never analyse the board itself, and to let `play_moves` do the
+search with `*`. For mate in 1, the line `["*"]` lists every mating move. For mate in 2, `["*", "*"]` ranks White's
+moves, and `[key, "*", "*"]` checks a key completely: one result per Black reply, each listing White's mates. A key
+works when none of its results has an empty list. Checking the likeliest keys first (quiet moves with few Black
+replies) finds a working key in the first such call for 45 of the 100 mate-in-2 puzzles, and within three calls for
+67.
 
 **Success.** The verifier (`verifier/solve.py`) checks these in order. The first that fails decides the verdict.
 

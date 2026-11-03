@@ -73,9 +73,33 @@ def test_play_moves_plays_each_line_separately(tmp_path: Path) -> None:
     assert illegal.error.startswith("move 2:") and illegal.san == ["Ra7"] and not illegal.white_to_move
 
 
+def test_play_moves_expands_a_star(tmp_path: Path) -> None:
+    # A last * lists the mating moves there instead of playing one.
+    (start,) = play_moves(PlayMovesInput(fen=BACK_RANK, lines=[["*"]]), tmp_path).lines
+    assert start.moves == ["*"] and start.mates == ["a1a8"] and start.san == [] and start.white_to_move
+    # A * before the last move gives one result per legal move there, in order.
+    after = play_moves(PlayMovesInput(fen=BACK_RANK, lines=[["a1a7"]]), tmp_path).lines[0]
+    replies = play_moves(PlayMovesInput(fen=BACK_RANK, lines=[["a1a7", "*", "*"]]), tmp_path).lines
+    assert len(replies) == after.legal_replies
+    assert [line.moves[1] for line in replies] == legal_moves(LegalMovesInput(fen=after.fen), tmp_path).moves
+    assert all(line.moves[2] == "*" and line.white_to_move and line.error == "" for line in replies)
+    assert [line.mates for line in replies if line.moves[1] == "g8h8"] == [["a7a8"]]
+    # A position with no legal move has nothing to put in place of the *.
+    (mated,) = play_moves(PlayMovesInput(fen=BACK_RANK, lines=[["a1a8", "*", "*"]]), tmp_path).lines
+    assert mated.moves == ["a1a8"] and mated.checkmate and mated.mates == []
+    # Lines without a last * list no mates.
+    assert play_moves(PlayMovesInput(fen=BACK_RANK, lines=[["a1a8"]]), tmp_path).lines[0].mates == []
+
+
 @pytest.mark.parametrize(
     ("lines", "message"),
-    [([], "1 to 30 lines"), ([["a1a8"]] * 31, "1 to 30 lines"), ([[]], "line 1"), ([["a1a2"] * 4], "line 1")],
+    [
+        ([["*", "*", "*"]] * 10, "expand to"),
+        ([], "1 to 80 lines"),
+        ([["a1a8"]] * 81, "1 to 80 lines"),
+        ([[]], "line 1"),
+        ([["a1a2"] * 4], "line 1"),
+    ],
 )
 def test_play_moves_refuses_too_many_or_too_few(tmp_path: Path, lines: list[list[str]], message: str) -> None:
     with pytest.raises(ValueError, match=message):

@@ -233,10 +233,12 @@ def test_tool_inputs() -> None:
         given = built(replace(task_input("m2-0042"), **change), SolveMateInput)
         assert not verifier.verify_input("solve_puzzle", given)["valid"], change
     assert not verifier.verify_input("legal_moves", build_output({"fen": "nonsense"}, LegalMovesInput))["valid"]
-    for lines in ([], [["a1a8"]] * 31, [[]], [["a1a2"] * 4], [["Ra8"]]):
+    for lines in ([], [["a1a8"]] * 81, [[]], [["a1a2"] * 4], [["Ra8"]], [["*", "*", "*"]] * 10):
         given = build_output({"fen": TWO_ROOKS, "lines": lines}, PlayMovesInput)
         assert not verifier.verify_input("play_moves", given)["valid"], lines
-    given = build_output({"fen": TWO_ROOKS, "lines": [["a1a8"], ["a1a7", "g8h8", "a7a8"]]}, PlayMovesInput)
+    given = build_output(
+        {"fen": TWO_ROOKS, "lines": [["a1a8"], ["a1a7", "g8h8", "a7a8"], ["a1a7", "*", "*"]]}, PlayMovesInput
+    )
     assert verifier.verify_input("play_moves", given)["valid"]
 
 
@@ -288,3 +290,15 @@ def test_play_moves_output() -> None:
     for lines in (made.lines[:2], [*made.lines, made.lines[0]], list(reversed(made.lines))):
         tampered = built(replace(made, lines=lines), PlayMovesOutput)
         assert not verifier.verify_output("play_moves", given, tampered, ".")["valid"]
+
+
+def test_play_moves_output_with_stars() -> None:
+    given = build_output({"fen": TWO_ROOKS, "lines": [["*"], ["a1a7", "*", "*"], ["a1a8", "*", "*"]]}, PlayMovesInput)
+    made = built(play_moves(given, HERE), PlayMovesOutput)
+    assert made.lines[0].mates == ["a1a8", "b1b8"] and len(made.lines) > 3
+    assert verifier.verify_output("play_moves", given, made, ".")["valid"]
+    for change in ({"mates": []}, {"mates": ["a1a8"]}, {"moves": ["*", "*"]}):
+        tampered = built(replace(made, lines=[replace(made.lines[0], **change), *made.lines[1:]]), PlayMovesOutput)
+        assert not verifier.verify_output("play_moves", given, tampered, ".")["valid"], change
+    tampered = built(replace(made, lines=made.lines[:-1]), PlayMovesOutput)
+    assert not verifier.verify_output("play_moves", given, tampered, ".")["valid"]

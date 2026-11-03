@@ -55,13 +55,16 @@ class PlayMovesInput(Output):
     fen: Annotated[str, FEN]
     lines: Annotated[
         list[list[Annotated[str, UCI]]],
-        "1 to 30 lines to try, each played separately from the position: 1 to 3 moves in turn",
+        "1 to 80 lines to try, each played separately from the position: 1 to 3 moves in turn. A * before the last "
+        "move stands for every legal move there, giving one result per move; a * as the last move is not played, and "
+        "the result's mates lists every legal move there that gives checkmate. The lines may expand to at most 120 "
+        "results",
     ]
 
 
 @dataclass
 class PlayedLine(Output):
-    moves: Annotated[list[Annotated[str, UCI]], "The line's moves, as given"]
+    moves: Annotated[list[Annotated[str, UCI]], "The line's moves, each * before the last filled in"]
     error: Annotated[str, "Why a move could not be played, with its number; empty when every move was legal"]
     san: Annotated[list[str], "The moves played, in Standard Algebraic Notation, up to any illegal move"]
     fen: Annotated[str, "The position after the moves played, as a full six-field FEN"]
@@ -70,6 +73,9 @@ class PlayedLine(Output):
     checkmate: Annotated[bool, "Whether the side to move then is checkmated"]
     stalemate: Annotated[bool, "Whether the side to move then is stalemated"]
     legal_replies: Annotated[int, "How many legal moves the side to move then has"]
+    mates: Annotated[
+        list[Annotated[str, UCI]], "When the line ends in *: every legal move of the side to move that checkmates"
+    ]
 
 
 @dataclass
