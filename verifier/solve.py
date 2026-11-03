@@ -21,21 +21,27 @@ def verify_task(arguments, output, reference, workspace):
     if output.puzzle_id != arguments.puzzle_id:
         return result(False, f"the answer is for {output.puzzle_id!r}, not {arguments.puzzle_id}", score=0.0)
     position, n, key = parse_fen(reference.fen), reference.mate_in, output.key_move
+    # The page draws the answer's moves from the puzzle's start, which the output does not carry.
+    start = reference.fen
     if not UCI_PATTERN.match(key):
-        return result(False, f"the key move {key!r} is malformed: give it in UCI, such as e2e4 or e7e8q", score=0.0)
+        return result(
+            False, f"the key move {key!r} is malformed: give it in UCI, such as e2e4 or e7e8q", score=0.0, fen=start
+        )
     try:
         move = parse_uci(position, key)
     except ValueError:
-        return result(False, f"the key move {key} is not legal in the puzzle", score=0.0, key=key)
+        return result(False, f"the key move {key} is not legal in the puzzle", score=0.0, key=key, fen=start)
     proved, listed = forces_mate(position, move, n), key in reference.keys
     if proved != listed:
-        return result(False, f"integrity failure: the proof and the reference disagree on {key}", score=0.0, key=key)
+        return result(
+            False, f"integrity failure: the proof and the reference disagree on {key}", score=0.0, key=key, fen=start
+        )
     if not proved:
-        return result(False, f"{key} does not force mate in {n}", score=0.0, key=key, keys=reference.keys)
+        return result(False, f"{key} does not force mate in {n}", score=0.0, key=key, keys=reference.keys, fen=start)
     problem = line_problem(position, output.main_line, key, n)
     if problem:
-        return result(False, f"{key} forces mate in {n}, but {problem}", score=KEY_ONLY_SCORE, key=key)
-    return result(True, f"{key} forces mate in {n}, and the main line ends in checkmate", key=key, mate_in=n)
+        return result(False, f"{key} forces mate in {n}, but {problem}", score=KEY_ONLY_SCORE, key=key, fen=start)
+    return result(True, f"{key} forces mate in {n}, and the main line ends in checkmate", key=key, mate_in=n, fen=start)
 
 
 def line_problem(position, line, key, n):

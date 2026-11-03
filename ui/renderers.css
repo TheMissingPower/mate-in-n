@@ -1,0 +1,143 @@
+/* The board keeps wood colours in both themes; everything around it takes the kit's tokens. */
+:host {
+  --square-light: #f0d9b5;
+  --square-dark: #b58863;
+  --square-moved: rgba(255, 214, 10, .55);
+  --label-on-light: #b58863;
+  --label-on-dark: #f0d9b5;
+}
+
+.mate-answer,
+.mate-puzzle {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  color: var(--text);
+}
+
+.summary,
+.caption,
+.moves-text {
+  margin: 0;
+}
+
+.caption {
+  color: var(--muted);
+  min-height: 1.4em;
+}
+
+.board-slot {
+  width: min(100%, 360px);
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  aspect-ratio: 1;
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  user-select: none;
+}
+
+.square {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+}
+
+.square.light {
+  background: var(--square-light);
+}
+
+.square.dark {
+  background: var(--square-dark);
+}
+
+.square.moved {
+  box-shadow: inset 0 0 0 100vmax var(--square-moved);
+}
+
+.piece {
+  font-size: clamp(18px, 8.5cqi, 38px);
+  line-height: 1;
+  font-family: "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols 2", serif;
+}
+
+.board-slot {
+  container-type: inline-size;
+}
+
+.square.white .piece {
+  color: #fff;
+  -webkit-text-stroke: 1px #222;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .35);
+}
+
+.square.black .piece {
+  color: #111;
+}
+
+.rank-label,
+.file-label {
+  position: absolute;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.rank-label {
+  top: 3px;
+  left: 3px;
+}
+
+.file-label {
+  right: 3px;
+  bottom: 3px;
+}
+
+.square.light .rank-label,
+.square.light .file-label {
+  color: var(--label-on-light);
+}
+
+.square.dark .rank-label,
+.square.dark .file-label {
+  color: var(--label-on-dark);
+}
+
+.stepper {
+  display: flex;
+  gap: 8px;
+}
+
+.move-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.move-chip {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.move-chip.current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.move-chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

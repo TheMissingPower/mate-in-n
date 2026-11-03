@@ -76,6 +76,8 @@ def test_accepts_the_stored_solution(puzzle_id: str) -> None:
     puzzle = stored(puzzle_id)
     verdict = judge(puzzle_id, puzzle["keys"][0], puzzle["main_line"], reference(puzzle_id))
     assert verdict["valid"] is True and verdict["score"] == 1.0
+    # The page draws the main line from the start the verdict gives.
+    assert verdict["details"]["fen"] == puzzle["fen"]
 
 
 def test_accepts_any_key_that_forces_mate() -> None:
@@ -111,6 +113,7 @@ def test_rejects_a_legal_key_that_does_not_force_mate() -> None:
     wrong = next(uci(move) for move in moves_of(position) if uci(move) not in puzzle["keys"])
     verdict = judge("m2-0001", wrong, [wrong], reference("m2-0001"))
     assert verdict["valid"] is False and verdict["score"] == 0.0 and "does not force mate" in verdict["message"]
+    assert verdict["details"]["fen"] == puzzle["fen"]
 
 
 def test_rejects_a_key_that_mates_only_after_a_bad_defence() -> None:
