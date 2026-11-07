@@ -1,7 +1,15 @@
 """get_puzzle (and the get-puzzle task) looks up a puzzle; solve_puzzle, solve-mate's reference, gives its keys."""
 
-from .checks import puzzle_id_problem, puzzle_position_problem, result, same_start_problem, task_input_problem
-from .chess_rules import board_text, forces_mate, has_legal_move, parse_fen, parse_uci, shortest_mate
+from .checks import (
+    CUSTOM,
+    position_or_problem,
+    puzzle_id_problem,
+    puzzle_position_problem,
+    result,
+    same_start_problem,
+    task_input_problem,
+)
+from .chess_rules import board_text, forces_mate, has_legal_move, parse_fen, parse_uci, shortest_mate, to_fen
 
 
 def verify_input(value):
@@ -20,6 +28,33 @@ def verify_solve_input(value):
 
 def verify_lookup(arguments, output, reference, workspace):
     return verify_puzzle(arguments, output, workspace)
+
+
+def verify_position_input(value):
+    _, problem = position_or_problem(value.fen)
+    if problem:
+        return result(False, problem)
+    return result(True, "input is valid")
+
+
+def verify_position(input_value, output_value, workspace):
+    if output_value.puzzle_id != CUSTOM:
+        return result(False, f"a position set from a FEN has the id {CUSTOM!r}")
+    position, problem = position_or_problem(input_value.fen)
+    if problem:
+        return result(False, problem)
+    if output_value.fen != to_fen(position):
+        return result(False, "the fen is not the position given")
+    problem = puzzle_position_problem(output_value.fen, output_value.mate_in, CUSTOM)
+    if problem:
+        return result(False, problem)
+    if output_value.board != board_text(position):
+        return result(False, "the board diagram does not show the position")
+    return result(True, "position is valid", mate_in=output_value.mate_in)
+
+
+def verify_set_position(arguments, output, reference, workspace):
+    return verify_position(arguments, output, workspace)
 
 
 def verify_puzzle(input_value, output_value, workspace):

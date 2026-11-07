@@ -10,6 +10,10 @@ The puzzles are 200 problems (100 each of mate in 1 and 2) from the
 [yacpdb.org](https://www.yacpdb.org/) problems, solved ahead of time and bundled in
 `src/plugin/data/puzzles.json`. The plugin needs no network and no API key.
 
+You can also give any position as a FEN, with either side to move. `set-position` finds the fewest moves in which
+the side to move forces mate, and makes the position a puzzle with the id `custom`. It refuses a position with no
+forced mate within 2 moves. Its keys are searched for when asked, not stored.
+
 ## Tools
 
 | Tool | Does | Code |
@@ -17,26 +21,30 @@ The puzzles are 200 problems (100 each of mate in 1 and 2) from the
 | `get_puzzle` | Gives a puzzle's starting FEN, a board diagram and n | `src/plugin/puzzles.py` |
 | `legal_moves` | Lists a position's legal moves in UCI, and nothing else: no SAN, so no `+` or `#` gives a mate away | `src/plugin/board.py` |
 | `play_moves` | Plays 1 to 80 lines of 1 to 3 UCI moves, each separately from one FEN, and returns each line's FEN, SAN and check, mate and stalemate flags; a line stops at an illegal move and names it. A `*` before a line's last move stands for every legal move there; a `*` as its last move lists the moves there that mate. At most 120 results in all | `src/plugin/board.py` |
-| `solve_puzzle` | Gives every key that forces mate within n (the task's reference, never shown to the agent) | `src/plugin/puzzles.py` |
+| `solve_puzzle` | Gives every key that forces mate within n (the task's reference, never shown to the agent); for a custom position it searches for them | `src/plugin/puzzles.py` |
+| `set_position` | Makes a puzzle from any legal FEN, either side to move: the id `custom`, the FEN normalized, a board diagram and n, the shortest forced mate (1 or 2) | `src/plugin/puzzles.py` |
 
 ### Tasks
 
 | Task | Does | Runner |
 |---|---|---|
 | `get-puzzle` | Looks up a puzzle by id, such as `m2-0042`, giving its FEN, n and a board diagram | `tool`, with `get_puzzle` |
+| `set-position` | Makes a puzzle from a FEN the user gives, giving the id `custom`, its FEN, n and a board diagram | `tool`, with `set_position` |
 | `solve-mate` | Finds the key and a main line of a mate-in-n puzzle | `agent`, with `legal_moves`, `play_moves`; reference `solve_puzzle` |
 
-**`solve-mate` input** `{puzzle_id, fen, mate_in}`, with `fen` and `mate_in` copied from `get-puzzle`. The agent
-starts with the position, so it needs no lookup step. `solve_puzzle` refuses an input whose `fen` or `mate_in` is not
-the puzzle's. **Output** `{puzzle_id, key_move, main_line}`, with moves in UCI (`e2e4`, `e7e8q`).
+**`solve-mate` input** `{puzzle_id, fen, mate_in}`, with all three copied from `get-puzzle` or `set-position`. The
+agent starts with the position, so it needs no lookup step. `solve_puzzle` refuses an input whose `fen` or `mate_in`
+is not the puzzle's, or, for `custom`, whose `mate_in` is not the position's shortest mate. **Output**
+`{puzzle_id, key_move, main_line}`, with moves in UCI (`e2e4`, `e7e8q`).
 
 The instructions are written for a small budget: about 2000 output tokens per model reply, thinking included, and a
 few steps. They tell the agent to think briefly and never analyse the board itself, and to let `play_moves` do the
-search with `*`. For mate in 1, the line `["*"]` lists every mating move. For mate in 2, `["*", "*"]` ranks White's
-moves, and `[key, "*", "*"]` checks a key completely: one result per Black reply, each listing White's mates. A key
+search with `*`. For mate in 1, the line `["*"]` lists every mating move. For mate in 2, `["*", "*"]` ranks the side to
+move's moves, and `[key, "*", "*"]` checks a key completely: one result per defence, each listing the mating answers. A key
 works when none of its results has an empty list. Checking the likeliest keys first (quiet moves with few Black
 replies) finds a working key in the first such call for 45 of the 100 mate-in-2 puzzles, and within three calls for
-67.
+67. In a custom position the agent tries checks, then captures, then quiet moves, since a mate in a game usually
+starts with a forcing move.
 
 **Success.** The verifier (`verifier/solve.py`) checks these in order. The first that fails decides the verdict.
 
@@ -46,8 +54,8 @@ replies) finds a working key in the first such call for 45 of the 100 mate-in-2 
 | The answer is for the task's puzzle | 0 |
 | `key_move` is a well-formed UCI move | 0 |
 | `key_move` is legal in the puzzle | 0 |
-| `key_move` forces mate within n against every Black defence, proved by the verifier's exhaustive search and matching the reference's key list (a disagreement is reported as an integrity failure) | 0 |
-| `main_line` starts with the key, every move is legal, it is at most 2n - 1 moves long, and it ends with Black checkmated | 0.5 |
+| `key_move` forces mate within n against every defence, proved by the verifier's exhaustive search and matching the reference's key list (a disagreement is reported as an integrity failure) | 0 |
+| `main_line` starts with the key, every move is legal, it is at most 2n - 1 moves long, and it ends with the defending side checkmated | 0.5 |
 
 An answer that passes every check is valid, with score 1. Any key that forces mate within n is accepted, including
 a second solution ("cook") of the original problem. Every bundled puzzle has no shorter mate.
@@ -106,8 +114,9 @@ Publishing checks every plugin rule: push the plugin to a public GitHub reposito
 RUSH Lab.
 
 **Limitations.**
-- Every puzzle is played with White to move, no castling and no en passant. A problem whose original solution
+- Every bundled puzzle is played with White to move, no castling and no en passant. A problem whose original solution
   needs one of those can have a different solution here than in the original. The bundled keys are always computed
-  under this plugin's convention.
+  under this plugin's convention. A custom position keeps its side to move, castling rights and en passant square.
+- A custom position must have a forced mate within 2 moves: the agent's lines are at most 3 moves long.
 - The 50-move and repetition rules are ignored, which can't matter within 2 moves.
 - The source collection has no license. Only a small, credited subset is bundled.

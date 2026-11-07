@@ -48,6 +48,7 @@ def line_problem(position, line, key, n):
     """Why the line is not a legal line from the key to a checkmate within n White moves, or None."""
     if not line:
         return "the main line is missing"
+    attacker = position.white
     if line[0] != key:
         return f"the main line starts with {line[0]!r}, not the key move"
     if len(line) > 2 * n - 1:
@@ -59,6 +60,6 @@ def line_problem(position, line, key, n):
             position = make_move(position, parse_uci(position, text))
         except ValueError:
             return f"main line move {number}, {text}, is not legal there"
-    if position.white or not is_checkmate(position):
-        return "the main line does not end with Black checkmated"
+    if position.white == attacker or not is_checkmate(position):
+        return "the main line does not end with the defending side checkmated"
     return None

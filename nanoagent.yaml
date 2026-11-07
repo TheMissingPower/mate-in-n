@@ -1,7 +1,7 @@
 _ > nanoagent.plugin.v0001.ManifestConfig:
 id: mate-in-n
 name: Mate in N
-version: 0.1.4
+version: 0.1.5
 status: ready
 spec: nanoagent.plugin/v0001
 
@@ -24,29 +24,38 @@ tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
   play_moves:
     description: Play 1 to 80 lines of 1 to 3 UCI moves, each separately from one FEN position, and return for each line the resulting FEN, the moves in SAN, whether the side to move then is in check, checkmated or stalemated and how many legal replies it has; a line stops at an illegal move, which its error names. A * before a line's last move stands for every legal move there, one result each; a * as the last move lists in mates every legal move there that checkmates; at most 120 results in all
   solve_puzzle:
-    description: Give a bundled puzzle's answer key, every White first move that forces checkmate within n moves, for the verifier only
+    description: Give a puzzle's answer key, every first move of the side to move that forces checkmate within n moves (searched for in a custom position), for the verifier only
+  set_position:
+    description: Make a puzzle from any legal FEN position, either side to move, giving its normalized FEN, a board diagram, the id custom and n (1 or 2), the fewest moves in which the side to move can force checkmate; refuses a position with no forced mate within 2 moves
 
 # One entry per contract.Task; its input class is contract.TASKS's.
 tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
   get-puzzle:
-    description: Look up a bundled mate-in-n chess puzzle (n is 1 or 2) by id, such as m2-0042, giving its starting FEN, n and a board diagram; run it before solve-mate, which takes the FEN and n
+    description: Look up a bundled mate-in-n chess puzzle (n is 1 or 2) by id, such as m2-0042, giving its starting FEN, n and a board diagram; run it before solve-mate, which takes the FEN and n. For a position the user gives as a FEN, run set-position instead
     runner: tool
     tools: [get_puzzle]
     reference: null
     instructions: |-
       Give the puzzle id, such as m1-0007 or m2-0042. Ids run from m1-0001 to m1-0100 and from m2-0001 to m2-0100.
+  set-position:
+    description: Make a mate-in-n puzzle from any chess position the user gives as a FEN, with either side to move, giving the id custom, its normalized FEN, n (1 or 2, the fewest moves in which the side to move forces checkmate) and a board diagram; run it before solve-mate, which takes the id, FEN and n. It refuses a position with no forced mate within 2 moves
+    runner: tool
+    tools: [set_position]
+    reference: null
+    instructions: |-
+      Give the position as a FEN, such as 6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1. The first four fields alone are enough. Either side may be to move; the side to move is the one that mates.
   solve-mate:
-    description: Solve a mate-in-n chess puzzle (n is 1 or 2) by finding White's key move, which forces checkmate within n moves however Black defends, with a main line that ends in mate; its input is the puzzle_id, fen and mate_in that get-puzzle gives. Its agent submits the answer itself; if the task fails, report the failure and offer to run it again, and never try to solve or submit the puzzle yourself
+    description: Solve a mate-in-n chess puzzle (n is 1 or 2) by finding the key move of the side to move, which forces checkmate within n moves however the other side defends, with a main line that ends in mate; its input is the puzzle_id, fen and mate_in that get-puzzle or set-position gives. Its agent submits the answer itself; if the task fails, report the failure and offer to run it again, and never try to solve or submit the puzzle yourself
     runner: agent
     tools: [legal_moves, play_moves]
     reference: solve_puzzle
     instructions: |-
-      Goal. White is to move and can force checkmate within n White moves (n = mate_in, 1 or 2), however Black defends. Find the key: White's first move that forces this. A key is correct only if every legal Black reply still loses to mate within the remaining moves.
+      Goal. The side to move in the fen (the attacker, White or Black) can force checkmate within n of its own moves (n = mate_in, 1 or 2), however the other side (the defender) defends. Find the key: the attacker's first move that forces this. A key is correct only if every legal reply still loses to mate within the remaining moves.
       Budget. Each of your replies is cut off after about 2000 tokens, thinking included, and a cut-off reply ends the task with no answer. You also have only a few steps. So think at most two or three sentences per step. Never decode the fen, list the pieces or describe the board, and never work out lines in your head: the tools calculate, you only copy moves into them.
-      Start. The task input already gives the puzzle's fen and mate_in. Call play_moves on that fen right away, before thinking about the position.
+      Start. The task input already gives the puzzle's fen and mate_in. Call play_moves on that fen right away, before thinking about the position. The puzzle_id is a bundled id such as m2-0042, or custom for a position the user gave.
       Lines. play_moves plays lines of 1 to 3 moves, each separately from the same fen, and returns for each whether it ends in check, checkmate or stalemate and how many legal_replies the side to move has. In a line, * stands for every legal move: a * before the last move gives one result per legal move there, and a * as the last move is not played but fills that result's mates with every legal move there that gives checkmate. All lines together may give at most 120 results. Always test many lines in one call, never one call per line.
       Mate in 1. Call play_moves with the one line ["*"]. Submit key_move = any move in its mates, and main_line = [that move].
-      Mate in 2. First call play_moves with the one line ["*", "*"]: it gives one result per White move, the move first in its moves. The key is almost always a quiet move (in_check false, no x in its san, stalemate false), and quiet moves with few legal_replies are the most likely, so list the quiet moves by legal_replies, fewest first. Then call play_moves with a line [key, "*", "*"] for each of the next few keys on that list, as many as fit in 120 results (each key gives about its legal_replies results). Each result is one Black reply, and its mates are White's mating answers. A key works if every one of its results has mates that are not empty (or checkmate true). Submit the first key that works; if none does, test the next keys on the list the same way.
+      Mate in 2. First call play_moves with the one line ["*", "*"]: it gives one result per attacker move, the move first in its moves. Skip moves with stalemate true, and order the rest into a list of candidate keys. In a bundled puzzle the key is almost always a quiet move (in_check false, no x in its san), so list the quiet moves first, fewest legal_replies first, then the rest. In a custom position, list the checks first (in_check true), then captures (x in the san), then quiet moves, each group fewest legal_replies first. Then call play_moves with a line [key, "*", "*"] for each of the next few keys on that list, as many as fit in 120 results (each key gives about its legal_replies results). Each result is one defender reply, and its mates are the attacker's mating answers. A key works if every one of its results has mates that are not empty (or checkmate true). Submit the first key that works; if none does, test the next keys on the list the same way.
       Answer. For mate in 2, main_line is [key, reply, mate]: take any of the key's results, its moves[0] and moves[1], and one move from its mates. Never put * in key_move or main_line.
       Notation. Every move is UCI: the from square then the to square, with a promotion letter (q, r, b or n) when a pawn reaches the last rank, e.g. e2e4, g1f3, e7e8q. Never SAN such as Qh5 or Nf3.
       Submit. Call submit with puzzle_id (exactly as given), key_move (the key, in UCI) and main_line: a line ending in checkmate, starting with the key, at most 2n - 1 moves (1 for mate in 1, 3 for mate in 2). If you run low on steps, submit your best key with its best line rather than nothing.

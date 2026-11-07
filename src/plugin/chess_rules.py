@@ -105,8 +105,10 @@ def parse_fen(fen):
         ep_square = (int(ep[1]) - 1) * 8 + FILES.index(ep[0])
     else:
         raise ValueError("the en passant square must be - or on the rank behind the pawn that just moved")
-    if not (halfmove.isdigit() and fullmove.isdigit() and int(fullmove) >= 1):
-        raise ValueError("the move counters must be whole numbers, the fullmove at least 1")
+    if not (halfmove.isdigit() and fullmove.isdigit()):
+        raise ValueError("the move counters must be whole numbers")
+    # Some sites write a fullmove of 0; it is read as 1.
+    fullmove = str(max(1, int(fullmove)))
     if board.count("K") != 1 or board.count("k") != 1:
         raise ValueError("each side must have exactly one king")
     if any(board[s] in "Pp" for s in list(range(8)) + list(range(56, 64))):

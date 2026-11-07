@@ -13,7 +13,7 @@ from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
 from contract import TOOLS, Tool
-from plugin import get_puzzle, legal_moves, play_moves, solve_puzzle
+from plugin import get_puzzle, legal_moves, play_moves, set_position, solve_puzzle
 
 server = Server("mate-in-n")
 # NanoAgent names the one folder this plugin may write to.
@@ -24,6 +24,7 @@ IMPLEMENTATIONS = {
     Tool.LEGAL_MOVES: legal_moves,
     Tool.PLAY_MOVES: play_moves,
     Tool.SOLVE_PUZZLE: solve_puzzle,
+    Tool.SET_POSITION: set_position,
 }
 
 

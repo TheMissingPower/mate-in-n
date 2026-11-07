@@ -4,11 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from contract import LegalMovesInput, PlayMovesInput, PuzzleInput, SolveMateInput
-from plugin import get_puzzle, legal_moves, play_moves, solve_puzzle
+from contract import LegalMovesInput, PlayMovesInput, PositionInput, PuzzleInput, SolveMateInput
+from plugin import get_puzzle, legal_moves, play_moves, set_position, solve_puzzle
 from plugin.puzzles import puzzles
 
 BACK_RANK = "6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1"
+# Black to move: m2-0001 with the colours swapped, so its key d2f3 becomes d7f6.
+BLACK_MATE_IN_2 = "6B1/2nn2p1/4r3/6Kp/1P4Pr/qkP3b1/N6N/1b6 b - - 0 1"
 
 
 def task_input(puzzle_id: str) -> SolveMateInput:
@@ -104,3 +106,34 @@ def test_play_moves_expands_a_star(tmp_path: Path) -> None:
 def test_play_moves_refuses_too_many_or_too_few(tmp_path: Path, lines: list[list[str]], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         play_moves(PlayMovesInput(fen=BACK_RANK, lines=lines), tmp_path)
+
+
+def test_set_position_makes_a_custom_puzzle_with_either_side_to_move(tmp_path: Path) -> None:
+    puzzle = set_position(PositionInput(fen=BLACK_MATE_IN_2), tmp_path)
+    assert puzzle.puzzle_id == "custom" and puzzle.mate_in == 2 and puzzle.fen == BLACK_MATE_IN_2
+    assert len(puzzle.board.splitlines()) == 9
+    # Four fields are enough, and a fullmove of 0, as some sites write it, is read as 1.
+    assert set_position(PositionInput(fen="6k1/5ppp/8/8/8/8/8/R5K1 w - -"), tmp_path).fen == BACK_RANK
+    black = set_position(PositionInput(fen="r5k1/8/8/8/8/8/5PPP/6K1 b - - 1 0"), tmp_path)
+    assert black.mate_in == 1 and black.fen == "r5k1/8/8/8/8/8/5PPP/6K1 b - - 1 1"
+
+
+@pytest.mark.parametrize(
+    ("fen", "message"),
+    [
+        ("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "cannot force checkmate within 2"),
+        ("R5k1/5ppp/8/8/8/8/8/6K1 b - - 1 1", "already over"),
+        ("not a fen", "FEN"),
+    ],
+)
+def test_set_position_refuses_a_position_without_a_short_mate(tmp_path: Path, fen: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        set_position(PositionInput(fen=fen), tmp_path)
+
+
+def test_solve_puzzle_searches_a_custom_position(tmp_path: Path) -> None:
+    given = SolveMateInput(puzzle_id="custom", fen=BLACK_MATE_IN_2, mate_in=2)
+    solution = solve_puzzle(given, tmp_path)
+    assert solution.puzzle_id == "custom" and solution.mate_in == 2 and solution.keys == ["d7f6"]
+    with pytest.raises(ValueError, match="not 1"):
+        solve_puzzle(SolveMateInput(puzzle_id="custom", fen=BLACK_MATE_IN_2, mate_in=1), tmp_path)

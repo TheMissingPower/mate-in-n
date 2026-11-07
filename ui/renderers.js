@@ -15,6 +15,16 @@ function moveLabel(position, move, index) {
   return `${number} ${name} ${move.slice(0, 2)} → ${move.slice(2, 4)}${promotion}`;
 }
 
+/** "White" or "Black": the side to move in a position. */
+function side(position) {
+  return position.white ? "White" : "Black";
+}
+
+/** A puzzle's name: its id, or "Custom position" for one set from a FEN. */
+function puzzleName(id) {
+  return id === "custom" ? "Custom position" : `Puzzle ${id}`;
+}
+
 /** The moves as plain text, for an answer whose start the verdict does not give. */
 function movesText(answer) {
   return h("p", { class: "moves-text", text: `Key ${answer.key_move}; main line ${(answer.main_line || []).join(" ") || "none"}` });
@@ -48,7 +58,7 @@ function solution(answer, { verdict }) {
     const last = shown === steps.length - 1 && shown > 0;
     caption.textContent =
       shown === 0
-        ? "Start: White to move"
+        ? `Start: ${side(steps[0])} to move`
         : `${chips[shown].textContent}${last && mated ? " — checkmate" : ""}`;
     chips.forEach((chip, at) => chip.classList.toggle("current", at === shown));
     prev.disabled = shown === 0;
@@ -59,7 +69,7 @@ function solution(answer, { verdict }) {
   return h(
     "div",
     { class: "mate-answer" },
-    h("p", { class: "summary" }, "Key move ", h("strong", { text: answer.key_move }), ` · puzzle ${answer.puzzle_id}`),
+    h("p", { class: "summary" }, "Key move ", h("strong", { text: answer.key_move }), ` · ${puzzleName(answer.puzzle_id)}`),
     boardSlot,
     caption,
     h("div", { class: "stepper" }, prev, next),
@@ -68,16 +78,19 @@ function solution(answer, { verdict }) {
 }
 
 function puzzle(value, { send }) {
+  const start = parseFen(value.fen);
+  const custom = value.puzzle_id === "custom";
   return h(
     "div",
     { class: "mate-puzzle" },
-    h("p", { class: "summary" }, h("strong", { text: value.puzzle_id }), ` · White to move and mate in ${value.mate_in}`),
-    h("div", { class: "board-slot" }, drawBoard(parseFen(value.fen), { label: `Puzzle ${value.puzzle_id}` })),
+    h("p", { class: "summary" }, h("strong", { text: puzzleName(value.puzzle_id) }), ` · ${side(start)} to move and mate in ${value.mate_in}`),
+    h("div", { class: "board-slot" }, drawBoard(start, { label: puzzleName(value.puzzle_id) })),
     h("button", {
       type: "button",
       class: "button small primary",
       text: "Solve it",
-      onclick: () => send(`Solve puzzle ${value.puzzle_id}`),
+      onclick: () =>
+        send(custom ? `Solve the custom position ${value.fen} (mate in ${value.mate_in})` : `Solve puzzle ${value.puzzle_id}`),
     }),
   );
 }

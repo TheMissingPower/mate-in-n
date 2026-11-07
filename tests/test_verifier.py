@@ -12,20 +12,22 @@ from contract import (
     LegalMovesOutput,
     PlayMovesInput,
     PlayMovesOutput,
+    PositionInput,
     PuzzleInput,
     PuzzleOutput,
     SolutionOutput,
     SolveMateInput,
     SolveMateOutput,
 )
-from plugin import get_puzzle, legal_moves, play_moves, solve_puzzle
+from plugin import get_puzzle, legal_moves, play_moves, set_position, solve_puzzle
 from plugin.chess_rules import legal_moves as moves_of
-from plugin.chess_rules import mating_keys, parse_fen, play, uci
+from plugin.chess_rules import main_line, mating_keys, parse_fen, play, uci
 from plugin.puzzles import puzzles
 
 HERE = Path(".")
 TWO_ROOKS = "6k1/5ppp/8/8/8/8/8/RR4K1 w - - 0 1"  # mate in 1, by a1a8 or b1b8
 PROMOTION = "k7/2P5/1K6/8/8/8/8/8 w - - 0 1"  # mate in 1, by c7c8q or c7c8r
+BLACK_MATE_IN_2 = "6B1/2nn2p1/4r3/6Kp/1P4Pr/qkP3b1/N6N/1b6 b - - 0 1"  # m2-0001 with colours swapped: d7f6
 
 
 # The verifier gets contract instances, as NanoAgent's sandbox builds them from JSON.
@@ -302,3 +304,45 @@ def test_play_moves_output_with_stars() -> None:
         assert not verifier.verify_output("play_moves", given, tampered, ".")["valid"], change
     tampered = built(replace(made, lines=made.lines[:-1]), PlayMovesOutput)
     assert not verifier.verify_output("play_moves", given, tampered, ".")["valid"]
+
+
+# Custom positions, set from any FEN.
+
+
+def custom_judge(fen: str, mate_in: int, key: str, line: list[str]):
+    arguments = build_output({"puzzle_id": "custom", "fen": fen, "mate_in": mate_in}, SolveMateInput)
+    ref = built(solve_puzzle(arguments, HERE), SolutionOutput)
+    output = build_output({"puzzle_id": "custom", "key_move": key, "main_line": line}, SolveMateOutput)
+    return verifier.verify_task("solve-mate", arguments, output, ref, str(HERE))
+
+
+def test_solves_a_custom_position_with_black_to_move() -> None:
+    position = parse_fen(BLACK_MATE_IN_2)
+    line = main_line(position, "d7f6", 2)
+    verdict = custom_judge(BLACK_MATE_IN_2, 2, "d7f6", line)
+    assert verdict["valid"] and verdict["score"] == 1.0, verdict
+    # A key that does not force mate scores nothing, and a line that stops short of mate gets half.
+    wrong = next(uci(move) for move in moves_of(position) if uci(move) != "d7f6")
+    assert custom_judge(BLACK_MATE_IN_2, 2, wrong, [wrong])["score"] == 0.0
+    assert custom_judge(BLACK_MATE_IN_2, 2, "d7f6", line[:2])["score"] == 0.5
+
+
+def test_set_position_output() -> None:
+    given = build_output({"fen": BLACK_MATE_IN_2}, PositionInput)
+    made = built(set_position(given, HERE), PuzzleOutput)
+    assert verifier.verify_output("set_position", given, made, ".")["valid"]
+    assert verifier.verify_task("set-position", given, made, None, ".")["valid"]
+    for change in ({"mate_in": 1}, {"puzzle_id": "m2-0001"}, {"board": "."}, {"fen": TWO_ROOKS}):
+        tampered = built(replace(made, **change), PuzzleOutput)
+        assert not verifier.verify_output("set_position", given, tampered, ".")["valid"], change
+    assert not verifier.verify_input("set_position", build_output({"fen": "nonsense"}, PositionInput))["valid"]
+
+
+def test_custom_solve_inputs() -> None:
+    def valid(fen, mate_in):
+        given = build_output({"puzzle_id": "custom", "fen": fen, "mate_in": mate_in}, SolveMateInput)
+        return verifier.verify_input("solve_puzzle", given)["valid"]
+
+    assert valid(BLACK_MATE_IN_2, 2) and valid(TWO_ROOKS, 1)
+    assert not valid(BLACK_MATE_IN_2, 1) and not valid(TWO_ROOKS, 2)
+    assert not valid("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 2)
